@@ -21,12 +21,20 @@ cp .env.template .env
 安装ffmepeg
 
 ## python
-安装版本管理`pyenv` 使用`python 3.12.4`
-
-### python 依赖
-使用虚拟环境
 ``` shell
+cd tg
+# 下载3.12.4版本
+pyenv install 3.12.4
+# 设置当前目录自动切换pyhton3.12.4
+pyenv local 3.12.4
+# 创建虚拟环境
 python -m venv .venv
+# 激活虚拟环境的python
 source .venv/bin/activate
-pip install -r requirements.txt
+# 依赖下载到当前虚拟环境 
+pip -r requirements.txt
+```
+启动
+``` shell
+./control.sh start
 ```

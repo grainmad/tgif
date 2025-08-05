@@ -5,3 +5,4 @@ __pycache__/
 tgif.log
 .DS_Store
 nohup.out
+.python_version
