@@ -170,7 +170,7 @@ def opt_stickerset(message):
         set_name = message.text.split('/')[-1]
     else :
         set_name = message.text
-    resp = requests.post(f"https://api.telegram.org/{BOT_TOKEN}/getStickerSet", data={"name":set_name})
+    resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/getStickerSet", data={"name":set_name})
     ss = resp.json()
     logger.debug(f"Sticker set response: {ss}")
     if not ss["ok"]:
