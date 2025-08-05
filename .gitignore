@@ -1,0 +1,7 @@
+.venv
+hub
+.env
+__pycache__/
+tgif.log
+.DS_Store
+nohup.out
