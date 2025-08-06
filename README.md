@@ -21,8 +21,11 @@ cp .env.template .env
 安装ffmepeg
 
 ## python
+安装pyenv
+
+### 启动
+手动
 ``` shell
-cd tg
 # 下载3.12.4版本
 pyenv install 3.12.4
 # 设置当前目录自动切换pyhton3.12.4
@@ -33,8 +36,10 @@ python -m venv .venv
 source .venv/bin/activate
 # 依赖下载到当前虚拟环境 
 pip -r requirements.txt
+# 启动
+python tgif.py
 ```
-启动
+一键启动
 ``` shell
 ./control.sh start
 ```

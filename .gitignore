@@ -1,8 +1,9 @@
+.DS_Store
 .venv
 hub
 .env
 __pycache__/
 tgif.log
-.DS_Store
 nohup.out
 .python_version
+.lock/
