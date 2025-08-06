@@ -5,6 +5,7 @@ import random
 import zipfile
 import shutil
 import threading
+import subprocess
 from filelock import FileLock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
@@ -106,7 +107,23 @@ def phototrans(src, dst): # miku.png miku.jpg
     return dst
 
 def videotrans(src, dst):
-    os.system(f"ffmpeg -i {src} {dst}")
+    cmd = f"ffmpeg -i {src} {dst}"
+    logger.info(f"Executing command: {cmd}")
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+        if result.stdout:
+            logger.info(f"ffmpeg stdout: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"ffmpeg stderr: {result.stderr}")
+        if result.returncode != 0:
+            logger.error(f"ffmpeg command failed with return code {result.returncode}")
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        logger.error(f"ffmpeg command timed out: {cmd}")
+        return False
+    except Exception as e:
+        logger.error(f"Error executing ffmpeg command: {e}")
+        return False
 
 def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
     dstzip = os.path.join(sticker_zip, f"{zip_name}{part}.zip") # hub/xxx/sticker_zip/xxx1.zip
@@ -118,8 +135,35 @@ def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
 def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
    
     if srcstickerset and srcstickerset[0].endswith('tgs'):
-        os.system(f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif")
-        os.system(f"mv {sticker_ori}/*.gif {sticker_gif}")
+        cmd1 = f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif"
+        logger.info(f"Executing command: {cmd1}")
+        try:
+            result1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True, timeout=600)
+            if result1.stdout:
+                logger.info(f"docker stdout: {result1.stdout}")
+            if result1.stderr:
+                logger.warning(f"docker stderr: {result1.stderr}")
+            if result1.returncode != 0:
+                logger.error(f"docker command failed with return code {result1.returncode}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"docker command timed out: {cmd1}")
+        except Exception as e:
+            logger.error(f"Error executing docker command: {e}")
+
+        cmd2 = f"mv {sticker_ori}/*.gif {sticker_gif}"
+        logger.info(f"Executing command: {cmd2}")
+        try:
+            result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=60)
+            if result2.stdout:
+                logger.info(f"mv stdout: {result2.stdout}")
+            if result2.stderr:
+                logger.warning(f"mv stderr: {result2.stderr}")
+            if result2.returncode != 0:
+                logger.error(f"mv command failed with return code {result2.returncode}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"mv command timed out: {cmd2}")
+        except Exception as e:
+            logger.error(f"Error executing mv command: {e}")
 
         for file in os.listdir(sticker_gif):
             if file.endswith('.tgs.gif'):
@@ -197,7 +241,7 @@ def opt_stickerset(message, nocache):
         if not nocache and os.path.exists(sticker_dir):
             logger.info(f"Using cached sticker set directory: {sticker_dir}")
             ziplist = sorted(os.listdir(sticker_zip))
-            bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}")
+            bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}\n发送中...")
             for file in ziplist:
                 file_path = os.path.join(sticker_zip, file)
                 bot.send_document(message.chat.id, telebot.types.InputFile(file_path), timeout=180)
@@ -213,7 +257,7 @@ def opt_stickerset(message, nocache):
 
         sz = len(sticker_info["result"]["stickers"])
         logger.info(f"Starting download of {sz} stickers")
-        bot.send_message(message.chat.id, f"开始下载，共计{sz}个表情")
+        bot.send_message(message.chat.id, f"开始下载... 共计{sz}个表情")
     
         file_list, bad_file, gif_list = [], [], []
         downloaded_count = 0
@@ -246,11 +290,11 @@ def opt_stickerset(message, nocache):
             logger.warning(f"Failed to download stickers: {bad_file}")
 
         logger.info("Download finished, starting GIF conversion")
-        bot.send_message(message.chat.id, "下载完毕，开始转化gif")
+        bot.send_message(message.chat.id, "下载完毕，开始gif转化...")
 
         stickerset2gif(sticker_ori, sticker_gif, file_list)
         
-        bot.send_message(message.chat.id, "转化完毕，开始分组压缩...\nTelegramBot规定不能发送超过50MB的文件，每组压缩包不超过45MB")
+        bot.send_message(message.chat.id, "转化完毕，开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
         logger.info(f"Starting compression for gif list: {gif_list}")
         gif_size, idx, total_bit = len(gif_list), 0, 0
         bad_gif, part, zips = [], [[]], []
@@ -276,7 +320,7 @@ def opt_stickerset(message, nocache):
         if bad_gif:
             bot.send_message(message.chat.id, f"以下{len(bad_gif)}个gif文件转换失败：\n{', '.join(bad_gif)}")
             logger.warning(f"Failed to convert GIFs: {bad_gif}")
-        bot.reply_to(message, f"压缩完毕，开始发送。\n将分成{len(part)}个压缩包发送")
+        bot.send_message(message.chat.id, f"压缩完毕，开始发送...\n将分成{len(part)}个压缩包发送")
         for i in zips:
             bot.send_document(message.chat.id, telebot.types.InputFile(i), timeout=180)
         bot.send_message(message.chat.id, f"发送完毕")
