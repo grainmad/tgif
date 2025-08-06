@@ -257,77 +257,84 @@ def opt_stickerset(message, nocache):
         os.makedirs(sticker_gif, exist_ok=True)
         os.makedirs(sticker_zip, exist_ok=True)
 
-        sz = len(sticker_info["result"]["stickers"])
-        logger.info(f"Starting download of {sz} stickers")
-        bot.send_message(message.chat.id, f"开始下载... 共计{sz}个表情")
-    
-        file_list, bad_file, gif_list = [], [], []
-        downloaded_count = 0
-        progress_lock = threading.Lock()
-    
-        def update_progress():
-            nonlocal downloaded_count
-            with progress_lock:
-                downloaded_count += 1
-                if downloaded_count % ((sz+4)//5) == 0 or downloaded_count == sz: # 缓存的集合 过快计数而无法显示
-                    bot.send_message(message.chat.id, f"下载进度{downloaded_count}/{sz}")
+        try:
+            sz = len(sticker_info["result"]["stickers"])
+            logger.info(f"Starting download of {sz} stickers")
+            bot.send_message(message.chat.id, f"开始下载... 共计{sz}个表情")
         
-        # Use ThreadPoolExecutor for concurrent downloads
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_sticker = {
-                executor.submit(download_sticker, bot, sticker, sticker_ori, update_progress): sticker 
-                for sticker in sticker_info["result"]["stickers"]
-            }
+            file_list, bad_file, gif_list = [], [], []
+            downloaded_count = 0
+            progress_lock = threading.Lock()
+        
+            def update_progress():
+                nonlocal downloaded_count
+                with progress_lock:
+                    downloaded_count += 1
+                    if downloaded_count % ((sz+4)//5) == 0 or downloaded_count == sz: # 缓存的集合 过快计数而无法显示
+                        bot.send_message(message.chat.id, f"下载进度{downloaded_count}/{sz}")
             
-            for future in as_completed(future_to_sticker):
-                ok, file_name, gif_name = future.result()
-                if ok:
-                    file_list.append(file_name)
-                    gif_list.append(gif_name)
-                else:
-                    bad_file.append(file_name)
+            # Use ThreadPoolExecutor for concurrent downloads
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_sticker = {
+                    executor.submit(download_sticker, bot, sticker, sticker_ori, update_progress): sticker 
+                    for sticker in sticker_info["result"]["stickers"]
+                }
+                
+                for future in as_completed(future_to_sticker):
+                    ok, file_name, gif_name = future.result()
+                    if ok:
+                        file_list.append(file_name)
+                        gif_list.append(gif_name)
+                    else:
+                        bad_file.append(file_name)
 
-        if bad_file:
-            bot.send_message(message.chat.id, f"以下{len(bad_file)}个表情下载失败：\n{', '.join(bad_file)}")
-            logger.warning(f"Failed to download stickers: {bad_file}")
+            if bad_file:
+                bot.send_message(message.chat.id, f"以下{len(bad_file)}个表情下载失败：\n{', '.join(bad_file)}")
+                logger.warning(f"Failed to download stickers: {bad_file}")
 
-        logger.info("Download finished, starting GIF conversion")
-        bot.send_message(message.chat.id, "下载完毕，开始gif转化...")
+            logger.info("Download finished, starting GIF conversion")
+            bot.send_message(message.chat.id, "下载完毕，开始gif转化...")
 
-        stickerset2gif(sticker_ori, sticker_gif, file_list)
-        
-        bot.send_message(message.chat.id, "转化完毕，开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
-        logger.info(f"Starting compression for gif list: {gif_list}")
-        gif_size, idx, total_bit = len(gif_list), 0, 0
-        bad_gif, part, zips = [], [[]], []
-        while idx < gif_size:
-            try:
-                bit = os.stat(os.path.join(sticker_gif, gif_list[idx])).st_size
-                if total_bit + bit > 45 * 1024 * 1024:
-                    logger.info(f"Creating zip for part {len(zips)+1}, list {str(part[-1])}, size {total_bit} bytes")
-                    zips.append(split_compress(sticker_gif, part[-1], sticker_zip, sticker_name, len(zips)+1))
-                    part.append([])
-                    total_bit = 0
-                part[-1].append(gif_list[idx])
-                total_bit += bit
-            except FileNotFoundError:
-                logger.error(f"File not found: {gif_list[idx]}")
-                bad_gif.append(gif_list[idx])
-        
-            idx += 1
-        # 最后一个单独处理
-        logger.info(f"Creating zip for part {len(zips)+1}, list {str(part[-1])}, size {total_bit} bytes")
-        zips.append(split_compress(sticker_gif, part[-1], sticker_zip, sticker_name, len(zips)+1))
+            stickerset2gif(sticker_ori, sticker_gif, file_list)
+            
+            bot.send_message(message.chat.id, "转化完毕，开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
+            logger.info(f"Starting compression for gif list: {gif_list}")
+            gif_size, idx, total_bit = len(gif_list), 0, 0
+            bad_gif, part, zips = [], [[]], []
+            while idx < gif_size:
+                try:
+                    bit = os.stat(os.path.join(sticker_gif, gif_list[idx])).st_size
+                    if total_bit + bit > 45 * 1024 * 1024:
+                        logger.info(f"Creating zip for part {len(zips)+1}, list {str(part[-1])}, size {total_bit} bytes")
+                        zips.append(split_compress(sticker_gif, part[-1], sticker_zip, sticker_name, len(zips)+1))
+                        part.append([])
+                        total_bit = 0
+                    part[-1].append(gif_list[idx])
+                    total_bit += bit
+                except FileNotFoundError:
+                    logger.error(f"File not found: {gif_list[idx]}")
+                    bad_gif.append(gif_list[idx])
+            
+                idx += 1
+            # 最后一个单独处理
+            logger.info(f"Creating zip for part {len(zips)+1}, list {str(part[-1])}, size {total_bit} bytes")
+            zips.append(split_compress(sticker_gif, part[-1], sticker_zip, sticker_name, len(zips)+1))
 
-        if bad_gif:
-            bot.send_message(message.chat.id, f"以下{len(bad_gif)}个gif文件转换失败：\n{', '.join(bad_gif)}")
-            logger.warning(f"Failed to convert GIFs: {bad_gif}")
-        bot.send_message(message.chat.id, f"压缩完毕，开始发送...\n将分成{len(part)}个压缩包发送")
-        for i in zips:
-            bot.send_document(message.chat.id, telebot.types.InputFile(i), timeout=180)
-        bot.send_message(message.chat.id, f"发送完毕")
-        logger.info("Sticker set processing completed!")
-    
+            if bad_gif:
+                bot.send_message(message.chat.id, f"以下{len(bad_gif)}个gif文件转换失败：\n{', '.join(bad_gif)}")
+                logger.warning(f"Failed to convert GIFs: {bad_gif}")
+            bot.send_message(message.chat.id, f"压缩完毕，开始发送...\n将分成{len(part)}个压缩包发送")
+            for i in zips:
+                bot.send_document(message.chat.id, telebot.types.InputFile(i), timeout=180)
+            bot.send_message(message.chat.id, f"发送完毕")
+            logger.info("Sticker set processing completed!")
+        except Exception as e:
+            logger.error(f"Error processing stickerset: {e}")
+            bot.send_message(message.chat.id, f"处理表情包合集时发生错误")
+            if os.path.exists(sticker_dir):
+                shutil.rmtree(sticker_dir)
+
+
 @bot.message_handler(commands=['stickerset2gif'])
 def stickerset(message):
     logger.info(f"Stickerset command received: {message}")
