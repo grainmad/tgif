@@ -133,52 +133,54 @@ def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
     return dstzip
 
 def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
+   # sticker_ori 可能包含不同的文件类型
    
-    if srcstickerset and srcstickerset[0].endswith('tgs'):
-        cmd1 = f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif"
-        logger.info(f"Executing command: {cmd1}")
-        try:
-            result1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True, timeout=600)
-            if result1.stdout:
-                logger.info(f"docker stdout: {result1.stdout}")
-            if result1.stderr:
-                logger.warning(f"docker stderr: {result1.stderr}")
-            if result1.returncode != 0:
-                logger.error(f"docker command failed with return code {result1.returncode}")
-        except subprocess.TimeoutExpired:
-            logger.error(f"docker command timed out: {cmd1}")
-        except Exception as e:
-            logger.error(f"Error executing docker command: {e}")
+   # in sticker_ori/ : xxx.tgs -> xxx.tgs.gif
+    cmd1 = f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif"
+    logger.info(f"Executing command: {cmd1}")
+    try:
+        result1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True, timeout=600)
+        if result1.stdout:
+            logger.info(f"docker stdout: {result1.stdout}")
+        if result1.stderr:
+            logger.warning(f"docker stderr: {result1.stderr}")
+        if result1.returncode != 0:
+            logger.error(f"docker command failed with return code {result1.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.error(f"docker command timed out: {cmd1}")
+    except Exception as e:
+        logger.error(f"Error executing docker command: {e}")
+    # in sticker_ori/ move xxx.tgs.gif to sticker_gif/
+    cmd2 = f"mv {sticker_ori}/*.gif {sticker_gif}"
+    logger.info(f"Executing command: {cmd2}")
+    try:
+        result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=60)
+        if result2.stdout:
+            logger.info(f"mv stdout: {result2.stdout}")
+        if result2.stderr:
+            logger.warning(f"mv stderr: {result2.stderr}")
+        if result2.returncode != 0:
+            logger.error(f"mv command failed with return code {result2.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.error(f"mv command timed out: {cmd2}")
+    except Exception as e:
+        logger.error(f"Error executing mv command: {e}")
+    # in sticker_gif/ : xxx.tgs.gif -> xxx.gif
+    for file in os.listdir(sticker_gif):
+        if file.endswith('.tgs.gif'):
+            nfile = file.replace('.tgs.gif', '.gif')
+            os.rename(os.path.join(sticker_gif, file), os.path.join(sticker_gif, nfile))
 
-        cmd2 = f"mv {sticker_ori}/*.gif {sticker_gif}"
-        logger.info(f"Executing command: {cmd2}")
-        try:
-            result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=60)
-            if result2.stdout:
-                logger.info(f"mv stdout: {result2.stdout}")
-            if result2.stderr:
-                logger.warning(f"mv stderr: {result2.stderr}")
-            if result2.returncode != 0:
-                logger.error(f"mv command failed with return code {result2.returncode}")
-        except subprocess.TimeoutExpired:
-            logger.error(f"mv command timed out: {cmd2}")
-        except Exception as e:
-            logger.error(f"Error executing mv command: {e}")
-
-        for file in os.listdir(sticker_gif):
-            if file.endswith('.tgs.gif'):
-                nfile = file.replace('.tgs.gif', '.gif')
-                os.rename(os.path.join(sticker_gif, file), os.path.join(sticker_gif, nfile))
-    else:
-        for srcsticker in srcstickerset:
-            srcsticker_ne = get_filename_without_extension(srcsticker) # miku.tgs
-            srcsticker_ext = srcsticker.split('.')[-1] # tgs
-            src = os.path.join(sticker_ori, srcsticker) # hub/xxx/miku.tgs
-            dst = os.path.join(sticker_gif, srcsticker_ne+".gif") # hub/xxxgif/miku.gif
-            if srcsticker_ext in ['webm', 'mp4']:
-                videotrans(src, dst)
-            else :
-                phototrans(src, dst)
+    for srcsticker in srcstickerset:
+        srcsticker_ne = get_filename_without_extension(srcsticker) # miku.tgs
+        srcsticker_ext = srcsticker.split('.')[-1] # tgs
+        if srcsticker_ext == 'tgs': continue
+        src = os.path.join(sticker_ori, srcsticker) # hub/xxx/miku.tgs
+        dst = os.path.join(sticker_gif, srcsticker_ne+".gif") # hub/xxxgif/miku.gif
+        if srcsticker_ext in ['webm', 'mp4']:
+            videotrans(src, dst)
+        else :
+            phototrans(src, dst)
 
 def download_sticker(bot, sticker_info, hub, progress_callback=None):
     """Download a single sticker file"""
