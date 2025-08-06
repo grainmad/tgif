@@ -91,20 +91,40 @@ def compress_to_zip(source_path, target_path, include_list = None):
             if include_list is None or file in include_list:
                 zf.write(source_path, arcname=os.path.basename(source_path))
 
-def phototrans(src, dst): # miku.png miku.jpg
-    def to_gif(png_images, output_path, duration=0.1):
-        # 加载第一张图片来创建动画
-        first_image = Image.open(png_images[0])
-        # 设置动画的帧数和时间间隔
-        frames = [first_image.copy()]
-        for image in png_images[1:]:
-            frames.append(Image.open(image))
-    
-        # 保存为GIF
-        frames[0].save(output_path, format='GIF', append_images=frames[1:],
-                    save_all=True, duration=duration, loop=0)
-    to_gif([src], dst)
-    return dst
+
+def pictrans(input_path, output_path):
+    """
+    终极图片转 GIF 方案：
+    1. 优先用 FFmpeg（保留透明和动态效果）
+    2. 失败时自动回退到 Pillow
+    """
+    try:
+        # 尝试 FFmpeg
+        subprocess.run(
+            [
+                "ffmpeg", "-i", input_path,
+                "-vf", "split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128",
+                "-loop", "0", output_path
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        return True
+    except:
+        try:
+            # FFmpeg 失败时回退到 Pillow
+            with Image.open(input_path) as img:
+                if img.mode in ("RGBA", "LA"):
+                    img = img.convert("P", palette=Image.Palette.ADAPTIVE, colors=255)
+                    img.save(output_path, format="GIF", transparency=0)
+                else:
+                    img.save(output_path, format="GIF")
+            return True
+        except Exception as e:
+            logger.error(f"Error converting image {input_path} to GIF: {e}")
+            return False
+
 
 def videotrans(src, dst):
     cmd = f"ffmpeg -i {src} {dst}"
@@ -180,7 +200,7 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
         if srcsticker_ext in ['webm', 'mp4']:
             videotrans(src, dst)
         else :
-            phototrans(src, dst)
+            pictrans(src, dst)
 
 def download_sticker(bot, sticker_info, hub, progress_callback=None):
     """Download a single sticker file"""
