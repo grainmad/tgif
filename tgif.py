@@ -12,6 +12,7 @@ from PIL import Image
 from dotenv import load_dotenv
 import time
 import logging
+from flask import Flask, send_from_directory, render_template_string, abort
 
 
 # creat .lock hub dir
@@ -74,7 +75,145 @@ start_cleanup_thread()
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 LOTTIE_CONVERTER = os.getenv('LOTTIE_CONVERTER')
+WEB_PORT = int(os.getenv('WEB_PORT', 8080))
+WEB_DOMAIN = os.getenv('WEB_DOMAIN', 'localhost')
+THREAD_POOL_SIZE = int(os.getenv('THREAD_POOL_SIZE', 5))
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# Initialize Flask app
+app = Flask(__name__)
+
+def generate_html_page(sticker_name, gif_list, sticker_dir):
+    logger.info(f"Generating HTML page for sticker set: {sticker_name} with {len(gif_list)} GIFs")
+    """Generate HTML page for a sticker set"""
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{sticker_name} - Sticker GIFs</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
+            .container {{ max-width: 1200px; margin: 0 auto; }}
+            h1 {{ text-align: center; color: #333; }}
+            .gif-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }}
+            .gif-item {{ background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
+            .gif-item img {{ max-width: 100%; height: auto; border-radius: 4px; }}
+            .gif-name {{ margin-top: 10px; font-size: 14px; color: #666; word-break: break-all; }}
+            .stats {{ text-align: center; margin: 20px 0; color: #666; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>{sticker_name}</h1>
+            <div class="stats">Total GIFs: {gif_count}</div>
+            <div class="gif-grid">
+                {gif_items}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Generate GIF items HTML
+    gif_items = ""
+    for gif in gif_list:
+        gif_items += f'''
+                <div class="gif-item">
+                    <img src="sticker_gif/{gif}" alt="{gif}" loading="lazy">
+                    <div class="gif-name">{gif}</div>
+                </div>'''
+    
+    html_content = html_template.format(
+        sticker_name=sticker_name,
+        gif_items=gif_items,
+        gif_count=len(gif_list)
+    )
+    
+    html_path = os.path.join(sticker_dir, "index.html")
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    logger.info(f"Generated HTML page: {html_path}")
+    return html_path
+
+# Flask routes
+@app.route('/')
+def index():
+    """List all available sticker sets"""
+    sticker_sets = []
+    if os.path.exists(hub_dir):
+        for item in os.listdir(hub_dir):
+            item_path = os.path.join(hub_dir, item)
+            if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "index.html")):
+                sticker_sets.append(item)
+    
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>TGIF Sticker Sets</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+            .container { max-width: 800px; margin: 0 auto; }
+            h1 { text-align: center; color: #333; }
+            .sticker-list { list-style: none; padding: 0; }
+            .sticker-item { background: white; margin: 10px 0; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .sticker-item a { text-decoration: none; color: #333; font-weight: bold; }
+            .sticker-item a:hover { color: #007bff; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Available Sticker Sets</h1>
+            <ul class="sticker-list">
+    """
+    
+    for sticker_set in sorted(sticker_sets):
+        html += f'<li class="sticker-item"><a href="/sticker/{sticker_set}/">{sticker_set}</a></li>'
+    
+    if not sticker_sets:
+        html += '<li class="sticker-item">No sticker sets available yet.</li>'
+    
+    html += """
+            </ul>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html
+
+@app.route('/sticker/<sticker_name>/')
+def sticker_page(sticker_name):
+    """Serve HTML page for a specific sticker set"""
+    sticker_path = os.path.join(hub_dir, sticker_name)
+    html_path = os.path.join(sticker_path, "index.html")
+    
+    if not os.path.exists(html_path):
+        abort(404)
+    
+    with open(html_path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+@app.route('/sticker/<sticker_name>/sticker_gif/<filename>')
+def serve_gif(sticker_name, filename):
+    """Serve GIF files"""
+    sticker_gif_path = os.path.join(hub_dir, sticker_name, "sticker_gif")
+    if not os.path.exists(os.path.join(sticker_gif_path, filename)):
+        abort(404)
+    return send_from_directory(sticker_gif_path, filename)
+
+def start_web_server():
+    """Start Flask web server in a separate thread"""
+    def run_server():
+        app.run(host='0.0.0.0', port=WEB_PORT, debug=False, threaded=True)
+    
+    web_thread = threading.Thread(target=run_server, daemon=True)
+    web_thread.start()
+    logger.info(f"Web server started on port {WEB_PORT}")
+
+# Start web server
+start_web_server()
 
 def get_filename_without_extension(filepath):
     return os.path.splitext(os.path.basename(filepath))[0]
@@ -118,7 +257,7 @@ def execcmd(cmd):
 def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
    # sticker_ori 可能包含不同的文件类型
     if LOTTIE_CONVERTER:
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
             futures = []
 
             for srcsticker in srcstickerset:
@@ -154,7 +293,7 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
                 nfile = file.replace('.tgs.gif', '.gif')
                 os.rename(os.path.join(sticker_gif, file), os.path.join(sticker_gif, nfile))
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
             futures = []
 
             for srcsticker in srcstickerset:
@@ -238,7 +377,9 @@ def opt_stickerset(message, nocache):
         if not nocache and os.path.exists(sticker_dir):
             logger.info(f"Using cached sticker set directory: {sticker_dir}")
             ziplist = sorted(os.listdir(sticker_zip))
+            web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
             bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}\n发送中...")
+            bot.send_message(message.chat.id, f"网页预览: {web_url}")
             for file in ziplist:
                 file_path = os.path.join(sticker_zip, file)
                 bot.send_document(message.chat.id, telebot.types.InputFile(file_path), timeout=180)
@@ -269,7 +410,7 @@ def opt_stickerset(message, nocache):
                         bot.send_message(message.chat.id, f"下载进度{downloaded_count}/{sz}")
             
             # Use ThreadPoolExecutor for concurrent downloads
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
                 future_to_sticker = {
                     executor.submit(download_sticker, bot, sticker, sticker_ori, update_progress): sticker 
                     for sticker in sticker_info["result"]["stickers"]
@@ -297,6 +438,15 @@ def opt_stickerset(message, nocache):
             logger.info(f"GIF conversion completed in {spend_time:.2f} seconds")
             bot.send_message(message.chat.id, f"转化完毕，耗时{spend_time:.2f}秒")
             
+            # Generate HTML page
+            actual_gif_list = [f for f in os.listdir(sticker_gif) if f.endswith('.gif')]
+            logger.info(f"Actual GIF list: {actual_gif_list}")
+
+            html_path = generate_html_page(sticker_name, actual_gif_list, sticker_dir)
+            web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
+            logger.info(f"Generated HTML page: {html_path}")
+            
+            bot.send_message(message.chat.id, f"已生成网页预览: {web_url}")            
             bot.send_message(message.chat.id, "开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
             logger.info(f"Starting compression for gif list: {gif_list}")
             gif_size, idx, total_bit = len(gif_list), 0, 0
