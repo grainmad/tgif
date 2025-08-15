@@ -73,6 +73,7 @@ start_cleanup_thread()
 
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+LOTTIE_CONVERTER = os.getenv('LOTTIE_CONVERTER')
 bot = telebot.TeleBot(BOT_TOKEN)
 
 def get_filename_without_extension(filepath):
@@ -92,59 +93,6 @@ def compress_to_zip(source_path, target_path, include_list = None):
                 zf.write(source_path, arcname=os.path.basename(source_path))
 
 
-def pictrans(input_path, output_path):
-    """
-    终极图片转 GIF 方案：
-    1. 优先用 FFmpeg（保留透明和动态效果）
-    2. 失败时自动回退到 Pillow
-    """
-    try:
-        # 尝试 FFmpeg
-        subprocess.run(
-            [
-                "ffmpeg", "-i", input_path,
-                "-vf", "split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128",
-                "-loop", "0", output_path
-            ],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        return True
-    except:
-        try:
-            # FFmpeg 失败时回退到 Pillow
-            with Image.open(input_path) as img:
-                if img.mode in ("RGBA", "LA"):
-                    img = img.convert("P", palette=Image.Palette.ADAPTIVE, colors=255)
-                    img.save(output_path, format="GIF", transparency=0)
-                else:
-                    img.save(output_path, format="GIF")
-            return True
-        except Exception as e:
-            logger.error(f"Error converting image {input_path} to GIF: {e}")
-            return False
-
-
-def videotrans(src, dst):
-    cmd = f"ffmpeg -i {src} {dst}"
-    logger.info(f"Executing command: {cmd}")
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        if result.stdout:
-            logger.info(f"ffmpeg stdout: {result.stdout}")
-        if result.stderr:
-            logger.warning(f"ffmpeg stderr: {result.stderr}")
-        if result.returncode != 0:
-            logger.error(f"ffmpeg command failed with return code {result.returncode}")
-        return result.returncode == 0
-    except subprocess.TimeoutExpired:
-        logger.error(f"ffmpeg command timed out: {cmd}")
-        return False
-    except Exception as e:
-        logger.error(f"Error executing ffmpeg command: {e}")
-        return False
-
 def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
     dstzip = os.path.join(sticker_zip, f"{zip_name}{part}.zip") # hub/xxx/sticker_zip/xxx1.zip
     if os.path.exists(dstzip):
@@ -152,55 +100,82 @@ def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
     compress_to_zip(sticker_gif, dstzip, gif_list)
     return dstzip
 
+def execcmd(cmd):
+    
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
+        # if result.stdout:
+        #     logger.info(f"stdout: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"stderr: {result.stderr}")
+        if result.returncode != 0:
+            logger.error(f"command failed with return code {result.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.error(f"command timed out: {cmd}")
+    except Exception as e:
+        logger.error(f"Error executing command: {e}")
+
 def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
    # sticker_ori 可能包含不同的文件类型
-   
-   # in sticker_ori/ : xxx.tgs -> xxx.tgs.gif
-    cmd1 = f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif"
-    logger.info(f"Executing command: {cmd1}")
-    try:
-        result1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True, timeout=600)
-        if result1.stdout:
-            logger.info(f"docker stdout: {result1.stdout}")
-        if result1.stderr:
-            logger.warning(f"docker stderr: {result1.stderr}")
-        if result1.returncode != 0:
-            logger.error(f"docker command failed with return code {result1.returncode}")
-    except subprocess.TimeoutExpired:
-        logger.error(f"docker command timed out: {cmd1}")
-    except Exception as e:
-        logger.error(f"Error executing docker command: {e}")
-    # in sticker_ori/ move xxx.tgs.gif to sticker_gif/
-    cmd2 = f"mv {sticker_ori}/*.gif {sticker_gif}"
-    logger.info(f"Executing command: {cmd2}")
-    try:
-        result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=60)
-        if result2.stdout:
-            logger.info(f"mv stdout: {result2.stdout}")
-        if result2.stderr:
-            logger.warning(f"mv stderr: {result2.stderr}")
-        if result2.returncode != 0:
-            logger.error(f"mv command failed with return code {result2.returncode}")
-    except subprocess.TimeoutExpired:
-        logger.error(f"mv command timed out: {cmd2}")
-    except Exception as e:
-        logger.error(f"Error executing mv command: {e}")
-    # in sticker_gif/ : xxx.tgs.gif -> xxx.gif
-    for file in os.listdir(sticker_gif):
-        if file.endswith('.tgs.gif'):
-            nfile = file.replace('.tgs.gif', '.gif')
-            os.rename(os.path.join(sticker_gif, file), os.path.join(sticker_gif, nfile))
+    if LOTTIE_CONVERTER:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = []
 
-    for srcsticker in srcstickerset:
-        srcsticker_ne = get_filename_without_extension(srcsticker) # miku.tgs
-        srcsticker_ext = srcsticker.split('.')[-1] # tgs
-        if srcsticker_ext == 'tgs': continue
-        src = os.path.join(sticker_ori, srcsticker) # hub/xxx/miku.tgs
-        dst = os.path.join(sticker_gif, srcsticker_ne+".gif") # hub/xxxgif/miku.gif
-        if srcsticker_ext in ['webm', 'mp4']:
-            videotrans(src, dst)
-        else :
-            pictrans(src, dst)
+            for srcsticker in srcstickerset:
+                srcsticker_ne = get_filename_without_extension(srcsticker) # miku.tgs
+                srcsticker_ext = srcsticker.split('.')[-1] # tgs
+                src = os.path.join(sticker_ori, srcsticker) # hub/xxx/miku.tgs
+                dst = os.path.join(sticker_gif, srcsticker_ne+".gif") # hub/xxxgif/miku.gif
+                if srcsticker_ext in ['webm', 'mp4']:
+                    # 处理视频的gif
+                    cmd = f"ffmpeg -i {src} {dst}"
+                    logger.info(f"Executing command: {cmd}")
+                elif srcsticker_ext == 'tgs': 
+                    # 处理tgs的gif
+                    cmd = f"{LOTTIE_CONVERTER} && bash lottie_to_gif.sh {src} --output {dst}"
+                    logger.info(f"Executing command: {cmd}")
+                else :
+                    # 处理透明图片的gif
+                    cmd = f"ffmpeg -i {src} -vf \"split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128\" -loop 0 {dst}"
+                    logger.info(f"Executing command: {cmd}")
+                executor.submit(execcmd, cmd)
+            # 获取结果
+            for future in futures:
+                future.result()
+    else :  
+        # user docker
+        # in sticker_ori/ : xxx.tgs -> xxx.tgs.gif
+        execcmd(f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif")
+        # in sticker_ori/ move xxx.tgs.gif to sticker_gif/
+        execcmd(f"mv {sticker_ori}/*.gif {sticker_gif}")
+        # in sticker_gif/ : xxx.tgs.gif -> xxx.gif
+        for file in os.listdir(sticker_gif):
+            if file.endswith('.tgs.gif'):
+                nfile = file.replace('.tgs.gif', '.gif')
+                os.rename(os.path.join(sticker_gif, file), os.path.join(sticker_gif, nfile))
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
+
+            for srcsticker in srcstickerset:
+                srcsticker_ne = get_filename_without_extension(srcsticker) # miku.tgs
+                srcsticker_ext = srcsticker.split('.')[-1] # tgs
+                if srcsticker_ext == 'tgs': continue
+                src = os.path.join(sticker_ori, srcsticker) # hub/xxx/miku.tgs
+                dst = os.path.join(sticker_gif, srcsticker_ne+".gif") # hub/xxxgif/miku.gif
+                if srcsticker_ext in ['webm', 'mp4']:
+                    # video
+                    cmd = f"ffmpeg -i {src} {dst}"
+                    logger.info(f"Executing command: {cmd}")
+                else :
+                    # picture
+                    cmd = f"ffmpeg -i {src} -vf \"split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128\" -loop 0 {dst}"
+                    logger.info(f"Executing command: {cmd}")
+                executor.submit(execcmd, cmd)
+                    
+            # 获取结果
+            for future in futures:
+                future.result()
 
 def download_sticker(bot, sticker_info, hub, progress_callback=None):
     """Download a single sticker file"""
@@ -315,9 +290,14 @@ def opt_stickerset(message, nocache):
             logger.info("Download finished, starting GIF conversion")
             bot.send_message(message.chat.id, "下载完毕，开始gif转化...")
 
+            start_time = time.time()
             stickerset2gif(sticker_ori, sticker_gif, file_list)
+            spend_time = time.time() - start_time
             
-            bot.send_message(message.chat.id, "转化完毕，开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
+            logger.info(f"GIF conversion completed in {spend_time:.2f} seconds")
+            bot.send_message(message.chat.id, f"转化完毕，耗时{spend_time:.2f}秒")
+            
+            bot.send_message(message.chat.id, "开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
             logger.info(f"Starting compression for gif list: {gif_list}")
             gif_size, idx, total_bit = len(gif_list), 0, 0
             bad_gif, part, zips = [], [[]], []

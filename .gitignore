@@ -6,4 +6,5 @@ __pycache__/
 tgif.log
 nohup.out
 .python_version
+.python-version
 .lock/
