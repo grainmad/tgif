@@ -78,6 +78,7 @@ LOTTIE_CONVERTER = os.getenv('LOTTIE_CONVERTER')
 WEB_PORT = int(os.getenv('WEB_PORT', 8080))
 WEB_DOMAIN = os.getenv('WEB_DOMAIN', 'localhost')
 THREAD_POOL_SIZE = int(os.getenv('THREAD_POOL_SIZE', 5))
+SEND_ZIP_IN_TG = os.getenv('SEND_ZIP_IN_TG', 'false').lower() in ['true', '1', 'yes']
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Initialize Flask app
@@ -106,6 +107,7 @@ def generate_html_page(sticker_name, gif_list, sticker_dir):
         <div class="container">
             <h1>{sticker_name}</h1>
             <div class="stats">Total GIFs: {gif_count}</div>
+            <div class="stats"> <a href="zip/{sticker_name}.zip">点击下载全部</a></div>
             <div class="gif-grid">
                 {gif_items}
             </div>
@@ -203,6 +205,25 @@ def serve_gif(sticker_name, filename):
         abort(404)
     return send_from_directory(sticker_gif_path, filename)
 
+@app.route('/sticker/<sticker_name>/zip/<filename>')
+def serve_zip(sticker_name, filename):
+    """Serve GIF zip"""
+    sticker_lock = os.path.join(lock_dir, sticker_name + ".lock")
+    if os.path.exists(sticker_lock):
+        try:
+            # 尝试获取锁，如果正在处理则返回提示信息
+            with FileLock(sticker_lock, timeout=0.1):
+                pass
+        except:
+            # 无法获取锁，说明正在处理中
+            return "资源正在生成中，请稍后重试", 202
+        
+    sticker_zip_path = os.path.join(hub_dir, sticker_name, filename)
+    logger.info(f"Serving zip file: {sticker_zip_path}")
+    if not os.path.exists(sticker_zip_path):
+        abort(404)
+    return send_from_directory(os.path.join(hub_dir, sticker_name), filename)
+
 def start_web_server():
     """Start Flask web server in a separate thread"""
     def run_server():
@@ -231,7 +252,7 @@ def compress_to_zip(source_path, target_path, include_list = None):
             if include_list is None or file in include_list:
                 zf.write(source_path, arcname=os.path.basename(source_path))
 
-
+# gif目录 gif文件名 gif压缩包目录 压缩包名 压缩包分组号
 def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
     dstzip = os.path.join(sticker_zip, f"{zip_name}{part}.zip") # hub/xxx/sticker_zip/xxx1.zip
     if os.path.exists(dstzip):
@@ -378,12 +399,13 @@ def opt_stickerset(message, nocache):
             logger.info(f"Using cached sticker set directory: {sticker_dir}")
             ziplist = sorted(os.listdir(sticker_zip))
             web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
-            bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}\n发送中...")
-            bot.send_message(message.chat.id, f'<a href="{web_url}">点击访问预览</a>', parse_mode="HTML")
-            for file in ziplist:
-                file_path = os.path.join(sticker_zip, file)
-                bot.send_document(message.chat.id, telebot.types.InputFile(file_path), timeout=180)
-            bot.send_message(message.chat.id, f"发送完毕")
+            bot.send_message(message.chat.id, f'<a href="{web_url}">点这里去网页中下载表情</a>', parse_mode="HTML")
+            if SEND_ZIP_IN_TG:
+                bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}\n发送中...")
+                for file in ziplist:
+                    file_path = os.path.join(sticker_zip, file)
+                    bot.send_document(message.chat.id, telebot.types.InputFile(file_path), timeout=180)
+                bot.send_message(message.chat.id, f"发送完毕")
             return 
         
         # nocache mode
@@ -446,10 +468,11 @@ def opt_stickerset(message, nocache):
             web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
             logger.info(f"Generated HTML page: {html_path}")
             
-            bot.send_message(message.chat.id, f'<a href="{web_url}">点击访问预览</a>', parse_mode="HTML")           
-            bot.send_message(message.chat.id, "开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
-            logger.info(f"Starting compression for gif list: {gif_list}")
-            gif_size, idx, total_bit = len(gif_list), 0, 0
+            message2 = bot.send_message(message.chat.id, f'<a href="{web_url}">点这里去网页中下载表情</a>', parse_mode="HTML")    
+            if SEND_ZIP_IN_TG: 
+                bot.send_message(message.chat.id, "开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
+            logger.info(f"Starting compression for gif list: {actual_gif_list}")
+            gif_size, idx, total_bit = len(actual_gif_list), 0, 0
             bad_gif, part, zips = [], [[]], []
             while idx < gif_size:
                 try:
@@ -459,11 +482,11 @@ def opt_stickerset(message, nocache):
                         zips.append(split_compress(sticker_gif, part[-1], sticker_zip, sticker_name, len(zips)+1))
                         part.append([])
                         total_bit = 0
-                    part[-1].append(gif_list[idx])
+                    part[-1].append(actual_gif_list[idx])
                     total_bit += bit
                 except FileNotFoundError:
-                    logger.error(f"File not found: {gif_list[idx]}")
-                    bad_gif.append(gif_list[idx])
+                    logger.error(f"File not found: {actual_gif_list[idx]}")
+                    bad_gif.append(actual_gif_list[idx])
             
                 idx += 1
             # 最后一个单独处理
@@ -471,12 +494,18 @@ def opt_stickerset(message, nocache):
             zips.append(split_compress(sticker_gif, part[-1], sticker_zip, sticker_name, len(zips)+1))
 
             if bad_gif:
-                bot.send_message(message.chat.id, f"以下{len(bad_gif)}个gif文件转换失败：\n{', '.join(bad_gif)}")
+                if SEND_ZIP_IN_TG:
+                    bot.send_message(message.chat.id, f"以下{len(bad_gif)}个gif文件转换失败：\n{', '.join(bad_gif)}")
                 logger.warning(f"Failed to convert GIFs: {bad_gif}")
-            bot.send_message(message.chat.id, f"压缩完毕，开始发送...\n将分成{len(part)}个压缩包发送")
-            for i in zips:
-                bot.send_document(message.chat.id, telebot.types.InputFile(i), timeout=180)
-            bot.send_message(message.chat.id, f'发送完毕')
+            if SEND_ZIP_IN_TG:
+                bot.send_message(message.chat.id, f"压缩完毕，开始发送...\n将分成{len(part)}个压缩包发送")
+                for i in zips:
+                    bot.send_document(message.chat.id, telebot.types.InputFile(i), timeout=180)
+                bot.send_message(message.chat.id, f'发送完毕')
+            # 生成所有表情的压缩包，嵌入网页中
+            split_compress(sticker_gif, actual_gif_list, sticker_dir, sticker_name, "")
+            logger.info(f"Sticker set {sticker_name} processed successfully")
+            bot.reply_to(message2, f"完整表情包合集压缩完毕！\n请去网页中下载压缩包\n", parse_mode="HTML")
             logger.info("Sticker set processing completed!")
         except Exception as e:
             logger.error(f"Error processing stickerset: {e}")
