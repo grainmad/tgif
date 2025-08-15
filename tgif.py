@@ -379,7 +379,7 @@ def opt_stickerset(message, nocache):
             ziplist = sorted(os.listdir(sticker_zip))
             web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
             bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}\n发送中...")
-            bot.send_message(message.chat.id, f"网页预览: {web_url}")
+            bot.send_message(message.chat.id, f'<a href="{web_url}">点击访问预览</a>', parse_mode="HTML")
             for file in ziplist:
                 file_path = os.path.join(sticker_zip, file)
                 bot.send_document(message.chat.id, telebot.types.InputFile(file_path), timeout=180)
@@ -446,7 +446,7 @@ def opt_stickerset(message, nocache):
             web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
             logger.info(f"Generated HTML page: {html_path}")
             
-            bot.send_message(message.chat.id, f"已生成网页预览: {web_url}")            
+            bot.send_message(message.chat.id, f'<a href="{web_url}">点击访问预览</a>', parse_mode="HTML")           
             bot.send_message(message.chat.id, "开始分组压缩...（每组压缩包不超过45MB）\nTelegramBot规定不能发送超过50MB的文件")
             logger.info(f"Starting compression for gif list: {gif_list}")
             gif_size, idx, total_bit = len(gif_list), 0, 0
@@ -476,7 +476,7 @@ def opt_stickerset(message, nocache):
             bot.send_message(message.chat.id, f"压缩完毕，开始发送...\n将分成{len(part)}个压缩包发送")
             for i in zips:
                 bot.send_document(message.chat.id, telebot.types.InputFile(i), timeout=180)
-            bot.send_message(message.chat.id, f"发送完毕")
+            bot.send_message(message.chat.id, f'发送完毕')
             logger.info("Sticker set processing completed!")
         except Exception as e:
             logger.error(f"Error processing stickerset: {e}")
