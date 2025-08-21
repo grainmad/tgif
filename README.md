@@ -2,6 +2,8 @@
 # 功能
 
 1. 下载telegram表情包集合，保存为gif格式
+    * ![pic1](pic/pic1.png)
+    * ![pic2](pic/pic2.png)
 2. 小游戏
 
 # 环境

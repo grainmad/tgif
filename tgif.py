@@ -277,7 +277,7 @@ def execcmd(cmd):
 
 def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
    # sticker_ori 可能包含不同的文件类型
-    if LOTTIE_CONVERTER:
+    if LOTTIE_CONVERTER: # 手动编译的lottie-to-gif
         with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
             futures = []
 
