@@ -292,7 +292,7 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
                     logger.info(f"Executing command: {cmd}")
                 elif srcsticker_ext == 'tgs': 
                     # 处理tgs的gif
-                    cmd = f"{LOTTIE_CONVERTER} && bash lottie_to_gif.sh {src} --output {dst}"
+                    cmd = f"{LOTTIE_CONVERTER} {src} --output {dst}"
                     logger.info(f"Executing command: {cmd}")
                 else :
                     # 处理透明图片的gif
