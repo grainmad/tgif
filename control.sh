@@ -1,5 +1,9 @@
 #!/bin/bash
 
+export PYENV_ROOT="$HOME/.pyenv"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init - bash)"
+
 # 脚本名称
 SCRIPT_NAME=$(basename "$0")
 # 程序名称
@@ -75,6 +79,7 @@ start() {
     # 激活虚拟环境并启动程序
     if [ ! -f "$VENV_PATH" ]; then
         echo "创建虚拟环境 .venv"
+        pyenv shell "$PYTHON_VERSION"
         python -m venv .venv
     else
         echo "虚拟环境 .venv 已存在"
