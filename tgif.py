@@ -260,7 +260,7 @@ def split_compress(sticker_gif, gif_list, sticker_zip, zip_name, part):
     compress_to_zip(sticker_gif, dstzip, gif_list)
     return dstzip
 
-def execcmd(cmd):
+def execcmd(cmd, progress_callback=None):
     
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
@@ -274,9 +274,22 @@ def execcmd(cmd):
         logger.error(f"command timed out: {cmd}")
     except Exception as e:
         logger.error(f"Error executing command: {e}")
+    if progress_callback:
+        progress_callback()
 
-def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
-   # sticker_ori 可能包含不同的文件类型
+def stickerset2gif(sticker_ori, sticker_gif, srcstickerset, chatid): # hub = hub/xxx
+    sz = len(srcstickerset)
+    process_count = 0
+    progress_lock = threading.Lock()
+
+    def update_progress():
+        nonlocal process_count
+        with progress_lock:
+            process_count += 1
+            logger.info(f"转换进度{process_count}/{sz}")
+            if process_count % max(1, sz // 10) == 0 or process_count == sz:
+                bot.send_message(chatid, f"转换进度{process_count}/{sz}")
+    # sticker_ori 可能包含不同的文件类型
     if LOTTIE_CONVERTER: # 手动编译的lottie-to-gif
         with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
             futures = []
@@ -298,7 +311,7 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
                     # 处理透明图片的gif
                     cmd = f"ffmpeg -i {src} -vf \"split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128\" -loop 0 {dst}"
                     logger.info(f"Executing command: {cmd}")
-                executor.submit(execcmd, cmd)
+                futures.append(executor.submit(execcmd, cmd, update_progress))
             # 获取结果
             for future in futures:
                 future.result()
@@ -331,7 +344,7 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset): # hub = hub/xxx
                     # picture
                     cmd = f"ffmpeg -i {src} -vf \"split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128\" -loop 0 {dst}"
                     logger.info(f"Executing command: {cmd}")
-                executor.submit(execcmd, cmd)
+                futures.append(executor.submit(execcmd, cmd))
                     
             # 获取结果
             for future in futures:
@@ -428,7 +441,7 @@ def opt_stickerset(message, nocache):
                 nonlocal downloaded_count
                 with progress_lock:
                     downloaded_count += 1
-                    if downloaded_count % ((sz+4)//5) == 0 or downloaded_count == sz: # 缓存的集合 过快计数而无法显示
+                    if downloaded_count % ((sz+9)//10) == 0 or downloaded_count == sz: # 缓存的集合 过快计数而无法显示
                         bot.send_message(message.chat.id, f"下载进度{downloaded_count}/{sz}")
             
             # Use ThreadPoolExecutor for concurrent downloads
@@ -454,7 +467,7 @@ def opt_stickerset(message, nocache):
             bot.send_message(message.chat.id, "下载完毕，开始gif转化...")
 
             start_time = time.time()
-            stickerset2gif(sticker_ori, sticker_gif, file_list)
+            stickerset2gif(sticker_ori, sticker_gif, file_list, message.chat.id)
             spend_time = time.time() - start_time
             
             logger.info(f"GIF conversion completed in {spend_time:.2f} seconds")
