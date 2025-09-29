@@ -281,14 +281,16 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset, chatid): # hub = hub
     sz = len(srcstickerset)
     process_count = 0
     progress_lock = threading.Lock()
-
+    progress_msg = bot.send_message(chatid, f"转换进度 {process_count}/{sz}")
     def update_progress():
         nonlocal process_count
         with progress_lock:
-            process_count += 1
-            logger.info(f"转换进度{process_count}/{sz}")
-            if process_count % max(1, sz // 10) == 0 or process_count == sz:
-                bot.send_message(chatid, f"转换进度{process_count}/{sz}")
+            process_count += 1  
+            bot.edit_message_text(
+                f"转换进度 {process_count}/{sz}", 
+                chat_id=chatid, 
+                message_id=progress_msg.message_id
+            )
     # sticker_ori 可能包含不同的文件类型
     if LOTTIE_CONVERTER: # 手动编译的lottie-to-gif
         with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
@@ -319,6 +321,15 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset, chatid): # hub = hub
         # user docker
         # in sticker_ori/ : xxx.tgs -> xxx.tgs.gif
         execcmd(f"docker run --rm -v {sticker_ori}:/source edasriyan/lottie-to-gif")
+
+        # update progress
+        process_count += len([f for f in os.listdir(sticker_ori) if f.endswith('.tgs')])
+        bot.edit_message_text(
+                f"转换进度 {process_count}/{sz}", 
+                chat_id=chatid, 
+                message_id=progress_msg.message_id
+            )
+
         # in sticker_ori/ move xxx.tgs.gif to sticker_gif/
         execcmd(f"mv {sticker_ori}/*.gif {sticker_gif}")
         # in sticker_gif/ : xxx.tgs.gif -> xxx.gif
@@ -344,7 +355,7 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset, chatid): # hub = hub
                     # picture
                     cmd = f"ffmpeg -i {src} -vf \"split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128\" -loop 0 {dst}"
                     logger.info(f"Executing command: {cmd}")
-                futures.append(executor.submit(execcmd, cmd))
+                futures.append(executor.submit(execcmd, cmd, update_progress))
                     
             # 获取结果
             for future in futures:
@@ -436,14 +447,16 @@ def opt_stickerset(message, nocache):
             file_list, bad_file, gif_list = [], [], []
             downloaded_count = 0
             progress_lock = threading.Lock()
-        
+            progress_msg = bot.send_message(message.chat.id, f"下载进度 {downloaded_count}/{sz}")
             def update_progress():
                 nonlocal downloaded_count
                 with progress_lock:
                     downloaded_count += 1
-                    if downloaded_count % ((sz+9)//10) == 0 or downloaded_count == sz: # 缓存的集合 过快计数而无法显示
-                        bot.send_message(message.chat.id, f"下载进度{downloaded_count}/{sz}")
-            
+                    bot.edit_message_text(
+                        f"下载进度 {downloaded_count}/{sz}", 
+                        chat_id=message.chat.id, 
+                        message_id=progress_msg.message_id
+                    )
             # Use ThreadPoolExecutor for concurrent downloads
             with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
                 future_to_sticker = {
