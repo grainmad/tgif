@@ -77,6 +77,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 LOTTIE_CONVERTER = os.getenv('LOTTIE_CONVERTER')
 WEB_PORT = int(os.getenv('WEB_PORT', 8080))
 WEB_DOMAIN = os.getenv('WEB_DOMAIN', 'localhost')
+WEB_DOMAIN_NGINX_HTTPS = os.getenv('WEB_DOMAIN_NGINX_HTTPS', '')
 THREAD_POOL_SIZE = int(os.getenv('THREAD_POOL_SIZE', 5))
 SEND_ZIP_IN_TG = os.getenv('SEND_ZIP_IN_TG', 'false').lower() in ['true', '1', 'yes']
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -422,7 +423,10 @@ def opt_stickerset(message, nocache):
         if not nocache and os.path.exists(sticker_dir):
             logger.info(f"Using cached sticker set directory: {sticker_dir}")
             ziplist = sorted(os.listdir(sticker_zip))
-            web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
+            if WEB_DOMAIN_NGINX_HTTPS:
+                web_url = f"https://{WEB_DOMAIN_NGINX_HTTPS}/sticker/{sticker_name}/"
+            else:
+                web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
             bot.send_message(message.chat.id, f'<a href="{web_url}">点这里去网页中下载表情</a>', parse_mode="HTML")
             if SEND_ZIP_IN_TG:
                 bot.send_message(message.chat.id, f"使用缓存的表情包合集: {str(ziplist)}\n发送中...")
@@ -491,7 +495,10 @@ def opt_stickerset(message, nocache):
             logger.info(f"Actual GIF list: {actual_gif_list}")
 
             html_path = generate_html_page(sticker_name, actual_gif_list, sticker_dir)
-            web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
+            if WEB_DOMAIN_NGINX_HTTPS:
+                web_url = f"https://{WEB_DOMAIN_NGINX_HTTPS}/sticker/{sticker_name}/"
+            else:
+                web_url = f"http://{WEB_DOMAIN}:{WEB_PORT}/sticker/{sticker_name}/"
             logger.info(f"Generated HTML page: {html_path}")
             
             message2 = bot.send_message(message.chat.id, f'<a href="{web_url}">点这里去网页中下载表情</a>', parse_mode="HTML")    
