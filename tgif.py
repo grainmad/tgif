@@ -325,7 +325,9 @@ def stickerset2gif(sticker_ori, sticker_gif, srcstickerset, chatid): # hub = hub
 
         # update progress
         process_count += len([f for f in os.listdir(sticker_ori) if f.endswith('.tgs')])
-        bot.edit_message_text(
+
+        if process_count != 0 : # 没有tgs文件在docker中转化，不能修改相同内容
+            bot.edit_message_text(
                 f"转换进度 {process_count}/{sz}", 
                 chat_id=chatid, 
                 message_id=progress_msg.message_id
